@@ -48,28 +48,26 @@ class StockRule(models.Model):
                 return product_qty - qty_available
         return product_qty
 
-    def _run_split_procurement(self, product_id, product_qty, product_uom,
-                               location_id, name, origin, values):
-        precision = self.env['decimal.precision']\
-            .precision_get('Product Unit of Measure')
-        needed_qty = self.get_mto_qty_to_order(product_id, product_qty,
-                                               product_uom, values)
+    def _run_split_procurement(self,procurements):
+        for procurement, rule in procurements :
+            precision = self.env['decimal.precision']\
+                .precision_get('Product Unit of Measure')
+            needed_qty = self.get_mto_qty_to_order(procurement.product_id, procurement.product_qty,
+                                               procurement.product_uom, procurement.values)
 
-        if float_is_zero(needed_qty, precision_digits=precision):
-            getattr(self.mts_rule_id, '_run_%s' % self.mts_rule_id.action)(
-                product_id, product_qty, product_uom, location_id, name,
-                origin, values)
-        elif float_compare(needed_qty, product_qty,
+            if float_is_zero(needed_qty, precision_digits=precision):
+                getattr(self.mts_rule_id, '_run_%s' % rule.mts_rule_id.action)(procurements)
+            elif float_compare(needed_qty, procurement.product_qty,
                            precision_digits=precision) == 0.0:
-            getattr(self.mto_rule_id, '_run_%s' % self.mto_rule_id.action)(
-                product_id, product_qty, product_uom, location_id, name,
-                origin, values)
-        else:
-            mts_qty = product_qty - needed_qty
-            getattr(self.mts_rule_id, '_run_%s' % self.mts_rule_id.action)(
-                product_id, mts_qty, product_uom, location_id, name, origin,
-                values)
-            getattr(self.mto_rule_id, '_run_%s' % self.mto_rule_id.action)(
-                product_id, needed_qty, product_uom, location_id, name,
-                origin, values)
+                getattr(self.mto_rule_id,  '_run_%s' % rule.mto_rule_id.action)(procurements)
+            else:
+                qty = procurement.product_qty - needed_qty
+                setattr(procurement, 'product_qty', qty)
+                #procurement.product_qty = procurement.product_qty - needed_qty
+                getattr(self.mts_rule_id, '_run_%s' % rule.mts_rule_id.action)(procurements)
+                setattr(procurement, 'product_qty', needed_qty)
+                #procurement.product_qty = needed_qty
+                getattr(self.mto_rule_id, '_run_%s' % rule.mto_rule_id.action)(procurements)
+                
         return True
+
